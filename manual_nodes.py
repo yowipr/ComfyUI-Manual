@@ -1,3 +1,4 @@
+import json
 import torch
 import numpy as np
 from PIL import Image, ImageOps
@@ -10,6 +11,16 @@ from server import PromptServer, BinaryEventTypes
 BASE_DIR = Path.cwd()
 MANUAL_NODES_DIR = BASE_DIR.joinpath("ComfyUI", "custom_nodes", "Manual")
 
+
+class AnyType(str):
+  """A special class that is always equal in not equal comparisons. Credit to pythongosssss"""
+
+  def __ne__(self, __value: object) -> bool:
+    return False
+
+
+any = AnyType("*")
+
 ###############################################################################################################
 class Layer:
 
@@ -17,36 +28,52 @@ class Layer:
     def INPUT_TYPES(s):
         return{
             "required": {
-                "image": ("STRING", {
-                    "default": "null"
-                }),
-                
+                "layer": (any, {"default": None }),
             }
         }
     
 
+    RETURN_TYPES = (any,)
+    RETURN_NAMES = ("Layer",)
 
-    RETURN_TYPES = ("IMAGE", "MASK")
-
-    FUNCTION = "load_image"
+    FUNCTION = "OnResult"
 
     CATEGORY = "Manual"
 
-    def load_image(self, image):
-        imgdata = base64.b64decode(image)
-        img = Image.open(BytesIO(imgdata))
+    def OnResult(self, layer):
+        print(f"---------------------------------loading Layer {layer['type']}---------------------------------")
+        #print("Type of layer:", type(layer))
+        #print("Content of layer:", layer)
+        layerValue = layer['value']
 
-        if "A" in img.getbands():
-            mask = np.array(img.getchannel("A")).astype(np.float32) / 255.0
+
+        if layer['type'] == "IMAGE":
+            return self.Layer_IMAGE(layerValue)
+        
+
+        elif layer['type'] == "STRING":
+            result = layerValue
+            return (result,)
+        else:
+            return None
+    
+
+    def Layer_IMAGE(self, value):
+        imgdata = base64.b64decode(value)
+        result = Image.open(BytesIO(imgdata))
+
+        if "A" in result.getbands():
+            mask = np.array(result.getchannel("A")).astype(np.float32) / 255.0
             mask = 1.0 - torch.from_numpy(mask)
         else:
             mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
 
-        img = img.convert("RGB")
-        img = np.array(img).astype(np.float32) / 255.0
-        img = torch.from_numpy(img)[None,]
+        result = result.convert("RGB")
+        result = np.array(result).astype(np.float32) / 255.0
+        result = torch.from_numpy(result)[None,]
+        return (result, mask)
 
-        return (img, mask)
+    
 
 ###############################################################################################################
 
@@ -56,19 +83,19 @@ class Output:
     def INPUT_TYPES(s):
         return {"required": 
                 {
-                    "images": ("IMAGE",)
+                    "result": (any, {}),
                 }
              }
     
 
     RETURN_TYPES = ()
-    FUNCTION = "send_images"
+    FUNCTION = "OnResult"
     OUTPUT_NODE = True
     CATEGORY = "Manual"
 
-    def send_images(self, images):
+    def OnResult(self, result):
         results = []
-        for tensor in images:
+        for tensor in result:
             array = 255.0 * tensor.cpu().numpy()
             image = Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
 
@@ -78,8 +105,8 @@ class Output:
                 ["PNG", image, None],
                 server.client_id,
             )
+            
             results.append(
-                # Could put some kind of ID here, but for now just match them by index
                 {"source": "websocket", "content-type": "image/png", "type": "output"}
             )
 
@@ -87,4 +114,5 @@ class Output:
 
 
 ###############################################################################################################
+
 
