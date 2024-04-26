@@ -4,10 +4,12 @@ from .manual_nodes import *
 NODE_CLASS_MAPPINGS = {
     "M_Layer": Layer,
     "M_Output": Output,
+    "M_RenderArea" : RenderArea,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "M_Layer": "Layer",
     "M_Output": "Output",
+    "M_RenderArea": "RenderArea",
 }
 
